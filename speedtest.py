@@ -187,7 +187,7 @@ def run_translate_purposes():
     asyncio.run(translate_purposes())
 
 # scheduler.add_job(run_translate_purposes, IntervalTrigger(seconds=30))
-scheduler.add_job(run_translate_purposes, "cron", hour=18, minute=44, second=00)
+scheduler.add_job(run_translate_purposes, "cron", hour=12, minute=00, second=00)
 
 @app.post("/trigger-translation/")
 async def translate_all_purposes():
