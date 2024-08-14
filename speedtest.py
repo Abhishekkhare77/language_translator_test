@@ -31,6 +31,8 @@ new_purposes_collection = db["consent_directory_new"]
 new_purposes_collection2 = db["consent_directory_new_krishna"]
 new_translated_collection = db["consent_directory_translated"]
 
+translated_data_element_collection = client["Concur_Backend_New"]["translated_data_elements"]
+
 purposes.create_index([("$**", "text")])
 
 
@@ -133,6 +135,7 @@ async def translate_text(text: str, src_lang: str, tgt_lang: str):
     return {"translated_text": translations[0]}
 
 async def translate_purposes():
+    print("Starting language translation.")
     try:
         all_languages = list(languages.find())
         documents = list(new_purposes_collection2.find({"is_translated": {"$ne": True}}))
@@ -181,47 +184,70 @@ async def translate_purposes():
         print("Language translations updated successfully.")
     except Exception as e:
         print(f"An error occurred during language translation: {e}")
+    
+async def de_translation():
+    print("Starting data element translation.")
+    try:
+        all_languages = list(languages.find())
+        documents = list(translated_data_element_collection.find({"is_translated": {"$ne": True}}))
 
+        for doc in documents:
+            print("Processing document ID", doc["_id"])
+            english_data_element_name = None
+
+            # Find the English version of data_element_concur_name
+            for element in doc.get("translated_elements", []):
+                if element["lang_short_code"] == "en":
+                    english_data_element_name = element["data_element_concur_name"]
+                    break
+
+            if not english_data_element_name:
+                print(f"No English data element name found for document ID {doc['_id']}. Skipping translation.")
+                continue
+
+            for element in doc.get("translated_elements", []):
+                if not element["data_element_concur_name"]:  # Only translate if data_element_concur_name is empty
+                    for lang in all_languages:
+                        if element["lang_short_code"] == lang["lang_short_code"]:
+                            translated_text = await translate_text(
+                                english_data_element_name,
+                                "en_Latn",
+                                lang['translation_symbol']
+                            )
+                            element["data_element_concur_name"] = translated_text["translated_text"]
+                            print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
+                            translated_data_element_collection.update_one(
+                                {"_id": doc["_id"], "translated_elements.lang_short_code": element["lang_short_code"]},
+                                {
+                                    "$set": {
+                                        "translated_elements.$.data_element_concur_name": element["data_element_concur_name"],
+                                        "updated_at": datetime.now(),
+                                    }
+                                },
+                            )
+
+            # Mark the document as fully translated if all elements are translated
+            if all(e.get("data_element_concur_name") for e in doc.get("translated_elements", [])):
+                print(f"Marking document ID {doc['_id']} as fully translated.")
+                translated_data_element_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"is_translated": True}}
+                )
+
+        print("Data element translations updated successfully.")
+    except Exception as e:
+        print(f"An error occurred during data element translation: {e}")
 
 def run_translate_purposes():
     asyncio.run(translate_purposes())
+    asyncio.run(de_translation())
+    
 
 # scheduler.add_job(run_translate_purposes, IntervalTrigger(seconds=30))
-scheduler.add_job(run_translate_purposes, "cron", hour=12, minute=00, second=00)
+scheduler.add_job(run_translate_purposes, "interval", minutes=10)
 
 @app.post("/trigger-translation/")
 async def translate_all_purposes():
     threading.Thread(target=run_translate_purposes).start()
     return {"message": "Translation process initiated."}
 
-
-
-# async def text_translation(text : str, src_lang : str, tgt_lang : str):
-#     print("Entered translation function with text:", text, "from", src_lang, "to", tgt_lang)
-#     async with httpx.AsyncClient() as client:
-#         payload = {
-#             "text": text,
-#             "src_lang": src_lang,
-#             "tgt_lang": tgt_lang
-#         }
-#         try:
-#             response = await client.post(
-#                 'https://translator.adnan-qasim.me/translate/',
-#                 json=payload,
-#                 headers={'accept': 'application/json', 'Content-Type': 'application/json'}
-#             )
-#             response.raise_for_status()  # Raise an error for 4xx/5xx responses
-#         except httpx.RequestError as exc:
-#             print(f"An error occurred while requesting {exc.request.url!r}.")
-#             raise HTTPException(status_code=500, detail="Translation service request failed")
-#         except httpx.HTTPStatusError as exc:
-#             print(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}.")
-#             raise HTTPException(status_code=500, detail="Translation service failed")
-
-#         translated_text = response.json().get("translated_text")
-#         if translated_text:
-#             print("Translation successful. For", src_lang, "to", tgt_lang)
-#             return translated_text
-#         else:
-#             print("Translation failed for", src_lang, "to", tgt_lang)
-#             raise HTTPException(status_code=500, detail="Received empty translation")
