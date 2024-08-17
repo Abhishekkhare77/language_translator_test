@@ -134,57 +134,120 @@ async def translate_text(text: str, src_lang: str, tgt_lang: str):
     print("Translation successful. For", src_lang, "to", tgt_lang)
     return {"translated_text": translations[0]}
 
+# async def translate_purposes():
+#     print("Starting language translation.")
+#     try:
+#         all_languages = list(languages.find())
+#         documents = list(new_purposes_collection2.find({"is_translated": {"$ne": True}}))
+
+#         for doc in documents:
+#             print("Processing document ID", doc["_id"])
+#             if not doc.get("is_translated"):
+#                 english_purpose = None
+#                 for p in doc.get("purpose", []):
+#                     if p["lang_short_code"] == "en":
+#                         english_purpose = p["description"]
+#                         break
+
+#                 if not english_purpose:
+#                     print(f"No English purpose found for document ID {doc['_id']}. Skipping translation.")
+#                     continue
+
+#                 for purpose in doc.get("purpose", []):
+#                     if not purpose["description"]:  # Only translate if description is empty
+#                         for lang in all_languages:
+#                             if purpose["lang_short_code"] == lang["lang_short_code"]:
+#                                 translated_text = await translate_text(
+#                                     english_purpose,
+#                                     "en_Latn",
+#                                     lang['translation_symbol']
+#                                 )
+#                                 purpose["description"] = translated_text["translated_text"]
+#                                 print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
+#                                 new_purposes_collection2.update_one(
+#                                     {"_id": doc["_id"], "purpose.lang_short_code": purpose["lang_short_code"]},
+#                                     {
+#                                         "$set": {
+#                                             "purpose.$.description": purpose["description"],
+#                                             "updated_at": datetime.now(),
+#                                         }
+#                                     },
+#                                 )
+
+#                 if all(p.get("description") for p in doc.get("purpose", [])):
+#                     print(f"Marking document ID {doc['_id']} as fully translated.")
+#                     new_purposes_collection2.update_one(
+#                         {"_id": doc["_id"]},
+#                         {"$set": {"is_translated": True}}
+#                     )
+
+#         print("Language translations updated successfully.")
+#     except Exception as e:
+#         print(f"An error occurred during language translation: {e}")
+
 async def translate_purposes():
     print("Starting language translation.")
     try:
         all_languages = list(languages.find())
         documents = list(new_purposes_collection2.find({"is_translated": {"$ne": True}}))
 
+        for lang in all_languages:
+            print("Processing language", lang["lang_short_code"])
+            
+            for doc in documents:
+                print("Processing document ID", doc["_id"])
+                
+                if not doc.get("is_translated"):
+                    english_purpose = None
+                    for p in doc.get("purpose", []):
+                        if p["lang_short_code"] == "en":
+                            english_purpose = p["description"]
+                            break
+
+                    if not english_purpose:
+                        print(f"No English purpose found for document ID {doc['_id']}. Skipping translation.")
+                        continue
+
+                    translated = False
+                    for purpose in doc.get("purpose", []):
+                        if purpose["lang_short_code"] == lang["lang_short_code"] and not purpose["description"]:
+                            translated_text = await translate_text(
+                                english_purpose,
+                                "en_Latn",
+                                lang['translation_symbol']
+                            )
+                            purpose["description"] = translated_text["translated_text"]
+                            print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
+                            new_purposes_collection2.update_one(
+                                {"_id": doc["_id"], "purpose.lang_short_code": purpose["lang_short_code"]},
+                                {
+                                    "$set": {
+                                        "purpose.$.description": purpose["description"],
+                                        "updated_at": datetime.now(),
+                                    }
+                                },
+                            )
+                            translated = True
+
+                if translated:
+                    print(f"Completed translations for document ID {doc['_id']} in language {lang['lang_short_code']}.")
+
+            # After processing all documents for the current language, mark them as translated if applicable
         for doc in documents:
-            print("Processing document ID", doc["_id"])
-            if not doc.get("is_translated"):
-                english_purpose = None
-                for p in doc.get("purpose", []):
-                    if p["lang_short_code"] == "en":
-                        english_purpose = p["description"]
-                        break
-
-                if not english_purpose:
-                    print(f"No English purpose found for document ID {doc['_id']}. Skipping translation.")
-                    continue
-
-                for purpose in doc.get("purpose", []):
-                    if not purpose["description"]:  # Only translate if description is empty
-                        for lang in all_languages:
-                            if purpose["lang_short_code"] == lang["lang_short_code"]:
-                                translated_text = await translate_text(
-                                    english_purpose,
-                                    "en_Latn",
-                                    lang['translation_symbol']
-                                )
-                                purpose["description"] = translated_text["translated_text"]
-                                print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
-                                new_purposes_collection2.update_one(
-                                    {"_id": doc["_id"], "purpose.lang_short_code": purpose["lang_short_code"]},
-                                    {
-                                        "$set": {
-                                            "purpose.$.description": purpose["description"],
-                                            "updated_at": datetime.now(),
-                                        }
-                                    },
-                                )
-
-                if all(p.get("description") for p in doc.get("purpose", [])):
-                    print(f"Marking document ID {doc['_id']} as fully translated.")
-                    new_purposes_collection2.update_one(
-                        {"_id": doc["_id"]},
-                        {"$set": {"is_translated": True}}
-                    )
+            if all(p.get("description") for p in doc.get("purpose", [])):
+                print(f"Marking document ID {doc['_id']} as fully translated for all languages.")
+                new_purposes_collection2.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"is_translated": True}}
+                )
 
         print("Language translations updated successfully.")
     except Exception as e:
         print(f"An error occurred during language translation: {e}")
-    
+
+
+
+
 async def de_translation():
     print("Starting data element translation.")
     try:
@@ -239,8 +302,8 @@ async def de_translation():
         print(f"An error occurred during data element translation: {e}")
 
 def run_translate_purposes():
-    asyncio.run(translate_purposes())
     asyncio.run(de_translation())
+    asyncio.run(translate_purposes())
     
 
 # scheduler.add_job(run_translate_purposes, IntervalTrigger(seconds=30))
