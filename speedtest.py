@@ -11,6 +11,7 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from datetime import datetime
 import asyncio
+import re
 
 
 # MongoDB connection URI
@@ -118,7 +119,26 @@ async def startup_event():
 
     scheduler.start()
 
-
+def clean_translated_text(text):
+    # Remove unwanted tokens like 'unk'
+    text = text.replace("unk", "")
+    
+    #Remove unwanted characters, trim whitespace, etc.
+    text = text.strip()
+    
+    # Replace multiple spaces with a single space
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove any numbers or unwanted special characters
+    text = re.sub(r'[^\w\s.,;?!-]', '', text)
+    
+    # Optionally, remove standalone numbers (not attached to words)
+    text = re.sub(r'\b\d+\b', '', text)
+    
+    # Final trim to clean any spaces introduced by replacements
+    text = text.strip()
+    
+    return text
     
 async def translate_text(text: str, src_lang: str, tgt_lang: str):
     print("Translating text:", text, "from", src_lang, "to", tgt_lang)
@@ -131,8 +151,11 @@ async def translate_text(text: str, src_lang: str, tgt_lang: str):
 
     ip = IndicProcessor(inference=True)
     translations = batch_translate([text], src_lang, tgt_lang, model, tokenizer, ip)
+
+    cleaned_translation = clean_translated_text(translations[0])
+
     print("Translation successful. For", src_lang, "to", tgt_lang)
-    return {"translated_text": translations[0]}
+    return {"translated_text": cleaned_translation}
 
 async def translate_purposes_for_language(lang):
     documents = list(new_purposes_collection2.find({"is_translated": {"$ne": True}}))
@@ -236,132 +259,6 @@ async def run_translate_purposes():
         await translate_data_elements_for_language(lang)
         print(f"Completed translation for language {lang['lang_short_code']}")
 
-# async def translate_purposes():
-#     print("Starting language translation.")
-#     try:
-#         all_languages = list(languages.find())
-#         documents = list(new_purposes_collection2.find({"is_translated": {"$ne": True}}))
-
-#         for lang in all_languages:
-#             print("Processing language", lang["lang_short_code"])
-            
-#             for doc in documents:
-#                 print("Processing document ID", doc["_id"])
-                
-#                 if not doc.get("is_translated"):
-#                     english_purpose = None
-#                     for p in doc.get("purpose", []):
-#                         if p["lang_short_code"] == "en":
-#                             english_purpose = p["description"]
-#                             break
-
-#                     if not english_purpose:
-#                         print(f"No English purpose found for document ID {doc['_id']}. Skipping translation.")
-#                         continue
-
-#                     translated = False
-#                     for purpose in doc.get("purpose", []):
-#                         if purpose["lang_short_code"] == lang["lang_short_code"] and not purpose["description"]:
-#                             translated_text = await translate_text(
-#                                 english_purpose,
-#                                 "en_Latn",
-#                                 lang['translation_symbol']
-#                             )
-#                             purpose["description"] = translated_text["translated_text"]
-#                             print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
-#                             new_purposes_collection2.update_one(
-#                                 {"_id": doc["_id"], "purpose.lang_short_code": purpose["lang_short_code"]},
-#                                 {
-#                                     "$set": {
-#                                         "purpose.$.description": purpose["description"],
-#                                         "updated_at": datetime.now(),
-#                                     }
-#                                 },
-#                             )
-#                             translated = True
-
-#                 if translated:
-#                     print(f"Completed translations for document ID {doc['_id']} in language {lang['lang_short_code']}.")
-
-#             # After processing all documents for the current language, mark them as translated if applicable
-#         for doc in documents:
-#             if all(p.get("description") for p in doc.get("purpose", [])):
-#                 print(f"Marking document ID {doc['_id']} as fully translated for all languages.")
-#                 new_purposes_collection2.update_one(
-#                     {"_id": doc["_id"]},
-#                     {"$set": {"is_translated": True}}
-#                 )
-
-#         print("Language translations updated successfully.")
-#     except Exception as e:
-#         print(f"An error occurred during language translation: {e}")
-
-        
-# async def de_translation():
-#     print("Starting data element translation.")
-#     try:
-#         all_languages = list(languages.find())
-#         documents = list(translated_data_element_collection.find({"is_translated": {"$ne": True}}))
-
-#         for lang in all_languages:
-#             print(f"Processing translations for language {lang['lang_short_code']}")
-            
-#             for doc in documents:
-#                 print("Processing document ID", doc["_id"])
-#                 english_data_element_name = None
-
-#                 # Find the English version of data_element_concur_name
-#                 for element in doc.get("translated_elements", []):
-#                     if element["lang_short_code"] == "en":
-#                         english_data_element_name = element["data_element_concur_name"]
-#                         break
-
-#                 if not english_data_element_name:
-#                     print(f"No English data element name found for document ID {doc['_id']}. Skipping translation.")
-#                     continue
-
-#                 # Translate for the current language if not already translated
-#                 for element in doc.get("translated_elements", []):
-#                     if element["lang_short_code"] == lang["lang_short_code"] and not element["data_element_concur_name"]:
-#                         translated_text = await translate_text(
-#                             english_data_element_name,
-#                             "en_Latn",
-#                             lang['translation_symbol']
-#                         )
-#                         element["data_element_concur_name"] = translated_text["translated_text"]
-#                         print(f"Updating document ID {doc['_id']} for language {lang['lang_short_code']}.")
-#                         translated_data_element_collection.update_one(
-#                             {"_id": doc["_id"], "translated_elements.lang_short_code": element["lang_short_code"]},
-#                             {
-#                                 "$set": {
-#                                     "translated_elements.$.data_element_concur_name": element["data_element_concur_name"],
-#                                     "updated_at": datetime.now(),
-#                                 }
-#                             },
-#                         )
-
-#             # Mark the document as fully translated if all elements are translated for the current language
-#             for doc in documents:
-#                 if all(e.get("data_element_concur_name") for e in doc.get("translated_elements", [])):
-#                     print(f"Marking document ID {doc['_id']} as fully translated.")
-#                     translated_data_element_collection.update_one(
-#                         {"_id": doc["_id"]},
-#                         {"$set": {"is_translated": True}}
-#                     )
-
-#         print("Data element translations updated successfully.")
-#     except Exception as e:
-#         print(f"An error occurred during data element translation: {e}")
-
-
-# async def run_translate_purposes():
-#     await asyncio.gather(
-#         de_translation(),
-#         translate_purposes()
-#     )
-    
-
-# scheduler.add_job(run_translate_purposes, IntervalTrigger(seconds=30))
 scheduler.add_job(lambda: asyncio.run(run_translate_purposes()), "interval", minutes=10)
 
 @app.post("/trigger-translation/")
