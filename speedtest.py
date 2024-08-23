@@ -15,7 +15,7 @@ import re
 
 
 # MongoDB connection URI
-uri = "mongodb+srv://concur-admin:oApIL0eGKTzHeWrn@concur-backend-db.3jzk7uh.mongodb.net"
+uri = "mongodb://gewgawrav:catax1234@concur.cumulate.live/"
 
 # Create a new client and connect to the server
 client = MongoClient(uri, server_api=ServerApi('1'))
